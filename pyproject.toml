@@ -3,7 +3,7 @@ name = "lerobot_policy_openvla"
 version = "0.1.0"
 description = "OpenVLA-OFT policy plugin for LeRobot"
 readme = "README.md"
-requires-python = ">= 3.12"
+requires-python = ">= 3.10"
 license = { text = "MIT" }
 authors = [{ name = "Your Name", email = "your@email.com" }]
 

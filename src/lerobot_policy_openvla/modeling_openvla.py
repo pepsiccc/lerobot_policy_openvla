@@ -32,7 +32,13 @@ from typing import Any
 
 import torch
 import torch.nn as nn
-from transformers import AutoModelForVision2Seq, AutoProcessor
+# transformers 5.x 将 AutoModelForVision2Seq 改名为 AutoModelForImageTextToText
+# 这里兼容两个版本
+try:
+    from transformers import AutoModelForImageTextToText as AutoModelForVision2Seq
+except ImportError:
+    from transformers import AutoModelForVision2Seq  # transformers 4.x
+from transformers import AutoProcessor
 
 from lerobot.policies.pretrained import PreTrainedPolicy
 
