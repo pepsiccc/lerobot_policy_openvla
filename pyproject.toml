@@ -1,0 +1,37 @@
+[project]
+name = "lerobot_policy_openvla"
+version = "0.1.0"
+description = "OpenVLA-OFT policy plugin for LeRobot"
+readme = "README.md"
+requires-python = ">= 3.12"
+license = { text = "MIT" }
+authors = [{ name = "Your Name", email = "your@email.com" }]
+
+dependencies = [
+    "lerobot",
+    # Prismatic VLMs (OpenVLA backbone) — 从 openvla-oft 的 conda env 继承
+    # 使用 transformers AutoModelForVision2Seq 加载，无需安装完整 prismatic 包
+    "transformers>=4.40.1",
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "Pillow>=10.0.0",
+    "einops>=0.7.0",
+    "peft>=0.10.0",         # LoRA 微调支持
+    "bitsandbytes>=0.43.0", # 4bit/8bit 量化支持（可选）
+]
+
+[project.optional-dependencies]
+quantization = ["bitsandbytes>=0.43.0"]
+flash-attn = ["flash-attn>=2.5.5"]
+dev = ["pytest", "ruff", "mypy"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lerobot_policy_openvla"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
