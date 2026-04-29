@@ -335,21 +335,19 @@ class OpenVLAPolicy(PreTrainedPolicy):
     # LeRobot 标准接口：forward()（训练）
     # ─────────────────────────────────────────────────────────────────────────
 
-    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def forward(self, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict | None]:
         """训练前向传播。
 
         Args:
             batch: LeRobot DataLoader 输出的批次数据，包含：
                 - "observation.images.<cam_name>": (B, C, H, W) 图像张量
-                  （已由 processor 预处理，pixel values 格式）
                 - "observation.state": (B, proprio_dim) 本体状态 [可选]
-                - "observation.task_description": list[str] 任务描述
                 - "input_ids": (B, seq_len) tokenized 输入
                 - "attention_mask": (B, seq_len) 注意力掩码
                 - "action": (B, action_chunk_size, action_dim) 目标动作
 
         Returns:
-            包含 "loss" 的字典，LeRobot 训练循环会调用 loss.backward()。
+            (loss, info)：符合 PreTrainedPolicy 抽象接口规范。
         """
         # ── 收集图像 ──────────────────────────────────────────────────────
         pixel_values = self._collect_pixel_values(batch)
@@ -380,10 +378,8 @@ class OpenVLAPolicy(PreTrainedPolicy):
         else:
             loss = nn.functional.mse_loss(pred_actions, target_actions)
 
-        return {
-            "loss": loss,
-            "loss_action": loss.detach(),  # 额外记录供 wandb logging
-        }
+        info = {"loss_action": loss.item()}
+        return loss, info
 
     # ─────────────────────────────────────────────────────────────────────────
     # LeRobot 标准接口：select_action()（推理）
@@ -444,6 +440,33 @@ class OpenVLAPolicy(PreTrainedPolicy):
     def reset(self) -> None:
         """清空 action chunk 队列（episode 开始时调用）。"""
         self._action_queue.clear()
+
+    def predict_action_chunk(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        """返回完整的 action chunk，供 select_action 使用。
+
+        PreTrainedPolicy 的抽象接口，公开版本的 _predict_action_chunk。
+
+        Returns:
+            chunk: (B, action_chunk_size, action_dim)
+        """
+        return self._predict_action_chunk(batch)
+
+    def get_optim_params(self) -> dict:
+        """返回优化器参数组，支持差异化学习率。
+
+        PreTrainedPolicy 的抽象接口。
+        - VLA backbone（LoRA 部分）：0.1x 学习率，防止遗忘预训练知识
+        - Action head & proprio projector：1.0x 学习率，需要快速收敛
+        """
+        backbone_params = [p for p in self.vla.parameters() if p.requires_grad]
+        head_params = list(self.action_head.parameters())
+        if self.proprio_projector is not None:
+            head_params += list(self.proprio_projector.parameters())
+
+        return [
+            {"params": backbone_params, "lr_scale": 0.1},
+            {"params": head_params,     "lr_scale": 1.0},
+        ]
 
     # ─────────────────────────────────────────────────────────────────────────
     # 辅助：收集并拼接多相机图像

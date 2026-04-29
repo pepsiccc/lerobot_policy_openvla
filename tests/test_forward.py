@@ -157,13 +157,13 @@ def test_forward_returns_loss():
     batch = make_batch()
 
     policy.train()
-    output = policy.forward(batch)
+    loss, info = policy.forward(batch)
 
-    assert "loss" in output, "forward() 必须返回包含 'loss' 的 dict"
-    loss = output["loss"]
+    assert isinstance(loss, torch.Tensor), "forward() 第一个返回值应是 Tensor"
     assert loss.shape == torch.Size([]), f"loss 应是标量，得到 shape={loss.shape}"
     assert not torch.isnan(loss), "loss 不应为 NaN"
     assert not torch.isinf(loss), "loss 不应为 Inf"
+    assert info is None or isinstance(info, dict), "第二个返回值应是 dict 或 None"
     print(f"  loss={loss.item():.4f}  ✅")
 
 
@@ -177,10 +177,10 @@ def test_forward_loss_decreases():
     losses = []
     for _ in range(5):
         optimizer.zero_grad()
-        output = policy.forward(batch)
-        output["loss"].backward()
+        loss, _ = policy.forward(batch)
+        loss.backward()
         optimizer.step()
-        losses.append(output["loss"].item())
+        losses.append(loss.item())
 
     # loss 在 5 步内至少有一次下降
     assert losses[-1] < losses[0] or min(losses) < losses[0], (
@@ -195,11 +195,10 @@ def test_forward_without_proprio():
     batch = make_batch(use_proprio=False)
 
     policy.train()
-    output = policy.forward(batch)
+    loss, info = policy.forward(batch)
 
-    assert "loss" in output
-    assert not torch.isnan(output["loss"])
-    print(f"  loss(no proprio)={output['loss'].item():.4f}  ✅")
+    assert not torch.isnan(loss)
+    print(f"  loss(no proprio)={loss.item():.4f}  ✅")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
