@@ -32,13 +32,12 @@ from typing import Any
 
 import torch
 import torch.nn as nn
-# transformers 5.x 将 AutoModelForVision2Seq 改名为 AutoModelForImageTextToText
-# 这里兼容两个版本
-try:
-    from transformers import AutoModelForImageTextToText as AutoModelForVision2Seq
-except ImportError:
-    from transformers import AutoModelForVision2Seq  # transformers 4.x
-from transformers import AutoProcessor
+# Prismatic VLM（OpenVLA 的 backbone）使用自定义架构，在 config.json 的 auto_map 中
+# 注册的是 "AutoModelForVision2Seq"。transformers 5.x 虽然将该类改名为
+# AutoModelForImageTextToText，但 trust_remote_code=True 的加载路径走的是
+# auto_map，会直接实例化 modeling_prismatic.py 里的类，绕过 Auto 注册表。
+# 因此这里统一使用 AutoConfig + 手动加载，兼容 4.x 和 5.x。
+from transformers import AutoConfig, AutoProcessor
 
 from lerobot.policies.pretrained import PreTrainedPolicy
 
@@ -187,12 +186,61 @@ class OpenVLAPolicy(PreTrainedPolicy):
                     "量化需要安装 bitsandbytes：pip install bitsandbytes"
                 )
 
-        self.vla = AutoModelForVision2Seq.from_pretrained(
+        # Prismatic/OpenVLA 使用 trust_remote_code 加载自定义模型类。
+        # auto_map 中注册的是 "AutoModelForVision2Seq"，但 transformers 5.x
+        # 已删除该名称。解决方案：先用 AutoConfig 读取配置，再用配置类上的
+        # from_pretrained 直接加载，完全绕过 Auto 注册表的名称查找。
+        model_config = AutoConfig.from_pretrained(
             config.pretrained_backbone,
-            torch_dtype=torch_dtype,
-            quantization_config=quantization_config,
+            trust_remote_code=True,
+        )
+        model_cls = model_config.__class__  # OpenVLAConfig (prismatic)
+        # 从 auto_map 找到模型类并动态加载
+        auto_map = getattr(model_config, "auto_map", {})
+        model_cls_path = (
+            auto_map.get("AutoModelForVision2Seq")
+            or auto_map.get("AutoModelForImageTextToText")
+        )
+        if model_cls_path:
+            # model_cls_path 格式："modeling_prismatic.OpenVLAForActionPrediction"
+            module_name, cls_name = model_cls_path.split(".")
+            import importlib
+            # trust_remote_code 已将自定义模块注册到 transformers_modules
+            try:
+                mod = importlib.import_module(f"transformers_modules.{config.pretrained_backbone.replace('/', '--').replace(chr(92), '--')}.{module_name}")
+            except ModuleNotFoundError:
+                # 本地路径：直接从快照目录加载
+                import sys, os
+                sys.path.insert(0, config.pretrained_backbone)
+                mod = importlib.import_module(module_name)
+            ModelClass = getattr(mod, cls_name)
+        else:
+            raise ValueError(
+                f"无法从 config.json 的 auto_map 找到模型类。"
+                f"auto_map={auto_map}"
+            )
+
+        load_kwargs = dict(
             low_cpu_mem_usage=True,
             trust_remote_code=True,
+        )
+        # transformers 5.x 用 dtype，4.x 用 torch_dtype
+        try:
+            import transformers
+            from packaging.version import Version
+            if Version(transformers.__version__) >= Version("5.0.0"):
+                load_kwargs["dtype"] = torch_dtype
+            else:
+                load_kwargs["torch_dtype"] = torch_dtype
+        except Exception:
+            load_kwargs["torch_dtype"] = torch_dtype
+
+        if quantization_config is not None:
+            load_kwargs["quantization_config"] = quantization_config
+
+        self.vla = ModelClass.from_pretrained(
+            config.pretrained_backbone,
+            **load_kwargs,
         )
 
         # 获取 LLM 隐藏维度（用于初始化 action head 和 proprio projector）
