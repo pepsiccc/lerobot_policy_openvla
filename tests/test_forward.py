@@ -310,7 +310,7 @@ if __name__ == "__main__":
         ("select_action() 输出形状",       test_select_action_shape),
         ("select_action() action chunking", test_select_action_chunking),
         ("select_action() reset()",        test_select_action_reset),
-        ("select_action() 确定性",         test_select_action_deterministic),
+        ("eval/train 模式切换",             test_eval_train_mode_switch),
     ]
 
     passed, failed = 0, 0
