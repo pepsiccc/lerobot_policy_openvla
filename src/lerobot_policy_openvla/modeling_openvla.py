@@ -204,15 +204,19 @@ class OpenVLAPolicy(PreTrainedPolicy):
         if model_cls_path:
             # model_cls_path 格式："modeling_prismatic.OpenVLAForActionPrediction"
             module_name, cls_name = model_cls_path.split(".")
-            import importlib
-            # trust_remote_code 已将自定义模块注册到 transformers_modules
-            try:
-                mod = importlib.import_module(f"transformers_modules.{config.pretrained_backbone.replace('/', '--').replace(chr(92), '--')}.{module_name}")
-            except ModuleNotFoundError:
-                # 本地路径：直接从快照目录加载
-                import sys, os
-                sys.path.insert(0, config.pretrained_backbone)
-                mod = importlib.import_module(module_name)
+            import importlib, sys, os
+
+            # 将模型目录加入 sys.path，使 modeling_prismatic.py 可被直接 import
+            # 无论是本地路径还是 HuggingFace 缓存路径，这种方式都适用
+            model_dir = str(config.pretrained_backbone)
+            if model_dir not in sys.path:
+                sys.path.insert(0, model_dir)
+
+            # 如果已经加载过（import 缓存），先清除避免使用旧版本
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+
+            mod = importlib.import_module(module_name)
             ModelClass = getattr(mod, cls_name)
         else:
             raise ValueError(

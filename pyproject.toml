@@ -18,6 +18,7 @@ dependencies = [
     "einops>=0.7.0",
     "peft>=0.10.0",         # LoRA 微调支持
     "bitsandbytes>=0.43.0", # 4bit/8bit 量化支持（可选）
+    "timm",
 ]
 
 [project.optional-dependencies]
