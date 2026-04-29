@@ -206,8 +206,26 @@ class OpenVLAPolicy(PreTrainedPolicy):
             module_name, cls_name = model_cls_path.split(".")
             import importlib, sys, os
 
-            # 将模型目录加入 sys.path，使 modeling_prismatic.py 可被直接 import
-            # 无论是本地路径还是 HuggingFace 缓存路径，这种方式都适用
+            # 1. 注入 prismatic shim：让 modeling_prismatic.py 中的
+            #    `from prismatic.xxx import yyy` 解析到我们的轻量 shim，
+            #    而不是依赖完整的 openvla-oft 仓库（含 TensorFlow 等重依赖）。
+            shim_dir = os.path.join(
+                os.path.dirname(__file__),  # lerobot_policy_openvla/
+                "prismatic_shim",
+            )
+            # 将 shim 目录的父目录加入 sys.path，使 `import prismatic` 找到 shim
+            shim_parent = os.path.dirname(shim_dir)  # lerobot_policy_openvla/
+            if shim_parent not in sys.path:
+                sys.path.insert(0, shim_parent)
+            # 将 shim 目录注册为 `prismatic` 包
+            if "prismatic" not in sys.modules:
+                import types
+                prismatic_pkg = types.ModuleType("prismatic")
+                prismatic_pkg.__path__ = [shim_dir]
+                prismatic_pkg.__package__ = "prismatic"
+                sys.modules["prismatic"] = prismatic_pkg
+
+            # 2. 将模型目录加入 sys.path，使 modeling_prismatic.py 可被直接 import
             model_dir = str(config.pretrained_backbone)
             if model_dir not in sys.path:
                 sys.path.insert(0, model_dir)
