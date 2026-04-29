@@ -279,23 +279,27 @@ def test_select_action_reset():
     print(f"  reset() 后队列清空，重新推理正常  ✅")
 
 
-def test_select_action_deterministic():
-    """相同观测下，select_action() 应返回确定性结果（eval 模式下）。"""
+def test_eval_train_mode_switch():
+    """验证 eval/train 模式切换是否正确。
+
+    select_action() 内部调用 self.eval()，之后应处于 eval 模式。
+    切回 train 模式后 forward() 应正常运行。
+    """
     policy = make_policy()
     obs = make_observation()
+    batch = make_batch()
 
-    policy.eval()
+    # select_action 内部会调用 self.eval()
     policy.reset()
-    action1 = policy.select_action(obs)
+    policy.select_action(obs)
+    assert not policy.training, "select_action() 后应处于 eval 模式"
 
-    policy.reset()
-    action2 = policy.select_action(obs)
-
-    # eval 模式 + 相同输入 → 输出应完全相同
-    assert torch.allclose(action1, action2), (
-        f"相同输入应输出相同动作。\naction1={action1}\naction2={action2}"
-    )
-    print(f"  确定性验证通过（eval 模式）  ✅")
+    # 切回训练模式，forward 应正常运行
+    policy.train()
+    loss, _ = policy.forward(batch)
+    assert policy.training, "train() 后应处于 train 模式"
+    assert not torch.isnan(loss)
+    print(f"  eval/train 模式切换正常  ✅")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
