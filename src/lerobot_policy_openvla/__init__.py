@@ -48,22 +48,31 @@ except ImportError:
     )
 
 from .configuration_openvla import OpenVLAConfig
-from .modeling_openvla import MLPActionHead, OpenVLAPolicy, ProprioProjector
-from .processor_openvla import (
-    OpenVLAPostProcessor,
-    OpenVLAPreProcessor,
-    make_openvla_pre_post_processors,
-)
+
+# modeling 和 processor 懒加载：只有真正用到时才 import，
+# 避免 import 阶段就触发 transformers / torch 的重量级依赖检查。
+def __getattr__(name):
+    if name in ("OpenVLAPolicy",):
+        from .modeling_openvla import OpenVLAPolicy
+        globals()["OpenVLAPolicy"] = OpenVLAPolicy
+        return globals()[name]
+    if name in ("OpenVLAPreProcessor", "OpenVLAPostProcessor", "make_openvla_pre_post_processors"):
+        from .processor_openvla import (
+            OpenVLAPostProcessor,
+            OpenVLAPreProcessor,
+            make_openvla_pre_post_processors,
+        )
+        globals().update({
+            "OpenVLAPreProcessor": OpenVLAPreProcessor,
+            "OpenVLAPostProcessor": OpenVLAPostProcessor,
+            "make_openvla_pre_post_processors": make_openvla_pre_post_processors,
+        })
+        return globals()[name]
+    raise AttributeError(f"module 'lerobot_policy_openvla' has no attribute {name!r}")
 
 __all__ = [
-    # 配置
     "OpenVLAConfig",
-    # Policy（主类）
     "OpenVLAPolicy",
-    # 子模块（供高级用户直接使用）
-    "MLPActionHead",
-    "ProprioProjector",
-    # 处理器
     "OpenVLAPreProcessor",
     "OpenVLAPostProcessor",
     "make_openvla_pre_post_processors",
