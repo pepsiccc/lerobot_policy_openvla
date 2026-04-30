@@ -9,7 +9,7 @@ from prismatic.vla.constants import ACTION_DIM, ACTION_TOKEN_BEGIN_IDX, IGNORE_I
 
 def get_current_action_mask(token_ids):
     """Mask for the current action chunk tokens in the sequence."""
-    newline_positions = token_ids != IGNORE_INDEX
+    newline_positions = (token_ids != IGNORE_INDEX).long()  # bool → int64
     cumsum = torch.cumsum(newline_positions, dim=1)
     mask = (1 <= cumsum) & (cumsum <= ACTION_DIM)
     action_tokens_only_mask = token_ids > ACTION_TOKEN_BEGIN_IDX
@@ -19,7 +19,7 @@ def get_current_action_mask(token_ids):
 
 def get_next_actions_mask(token_ids):
     """Mask for the next action chunk tokens in the sequence."""
-    newline_positions = token_ids != IGNORE_INDEX
+    newline_positions = (token_ids != IGNORE_INDEX).long()  # bool → int64
     cumsum = torch.cumsum(newline_positions, dim=1)
     mask = cumsum > ACTION_DIM
     action_tokens_only_mask = token_ids > ACTION_TOKEN_BEGIN_IDX
