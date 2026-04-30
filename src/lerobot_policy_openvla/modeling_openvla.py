@@ -258,6 +258,16 @@ class OpenVLAPolicy(PreTrainedPolicy):
             sys.modules[full_module_name] = mod
             spec.loader.exec_module(mod)
             ModelClass = getattr(mod, cls_name)
+
+            # transformers 5.x 要求模型类声明以下属性，
+            # modeling_prismatic.py 是为 4.x 写的，缺少这些声明，需要补丁。
+            for attr, default in [
+                ("_supports_sdpa", False),
+                ("_supports_flash_attn_2", False),
+                ("_supports_flex_attn", False),
+            ]:
+                if not hasattr(ModelClass, attr):
+                    setattr(ModelClass, attr, default)
         else:
             raise ValueError(
                 f"无法从 config.json 的 auto_map 找到模型类。"
