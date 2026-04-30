@@ -225,16 +225,38 @@ class OpenVLAPolicy(PreTrainedPolicy):
                 prismatic_pkg.__package__ = "prismatic"
                 sys.modules["prismatic"] = prismatic_pkg
 
-            # 2. 将模型目录加入 sys.path，使 modeling_prismatic.py 可被直接 import
+            # 2. 将模型目录注册为一个顶层包（package），
+            #    使 modeling_prismatic.py 中的相对导入（from .xxx import yyy）能正确解析。
             model_dir = str(config.pretrained_backbone)
-            if model_dir not in sys.path:
-                sys.path.insert(0, model_dir)
+            pkg_name = "prismatic_model"   # 固定包名，避免路径中特殊字符
 
-            # 如果已经加载过（import 缓存），先清除避免使用旧版本
-            if module_name in sys.modules:
-                del sys.modules[module_name]
+            if pkg_name not in sys.modules:
+                import types
+                # 创建包对象
+                pkg = types.ModuleType(pkg_name)
+                pkg.__path__ = [model_dir]
+                pkg.__package__ = pkg_name
+                pkg.__spec__ = importlib.util.spec_from_file_location(
+                    pkg_name,
+                    os.path.join(model_dir, "__init__.py"),
+                    submodule_search_locations=[model_dir],
+                )
+                sys.modules[pkg_name] = pkg
 
-            mod = importlib.import_module(module_name)
+            # 以 prismatic_model.modeling_prismatic 的形式加载
+            full_module_name = f"{pkg_name}.{module_name}"
+            if full_module_name in sys.modules:
+                del sys.modules[full_module_name]
+
+            spec = importlib.util.spec_from_file_location(
+                full_module_name,
+                os.path.join(model_dir, f"{module_name}.py"),
+                submodule_search_locations=[model_dir],
+            )
+            mod = importlib.util.module_from_spec(spec)
+            mod.__package__ = pkg_name
+            sys.modules[full_module_name] = mod
+            spec.loader.exec_module(mod)
             ModelClass = getattr(mod, cls_name)
         else:
             raise ValueError(
