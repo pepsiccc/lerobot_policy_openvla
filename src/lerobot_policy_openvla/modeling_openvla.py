@@ -224,12 +224,20 @@ class OpenVLAPolicy(PreTrainedPolicy):
         self.vla.print_trainable_parameters()
 
     def _collect_pixel_values(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        """按 config.image_keys 顺序收集图像。
+        """收集 pixel_values。
+
+        优先使用 processor 处理后的 "pixel_values" 键（6通道或12通道）。
+        若不存在则按 image_keys 收集原始图像。
 
         Returns:
-            单相机：(B, C, H, W)
-            多相机：(B, N, C, H, W)
+            单相机：(B, 6, H, W)
+            多相机：(B, 6*N, H, W)
         """
+        # processor 处理后的多相机图像存在 "pixel_values" 键
+        if "pixel_values" in batch:
+            return batch["pixel_values"]
+
+        # 单相机：processor 把结果存回了 image_keys[0]
         image_keys = list(self.config.image_keys)
         images = []
         for key in image_keys:
@@ -243,7 +251,8 @@ class OpenVLAPolicy(PreTrainedPolicy):
         if len(images) == 1:
             return images[0]
         else:
-            return torch.stack(images, dim=1)  # (B, N, C, H, W)
+            # 多相机：在 channel 维度拼接
+            return torch.cat(images, dim=1)  # (B, 6*N, H, W)
 
     # ─────────────────────────────────────────────────────────────────────────
     # LeRobot 接口：forward()（训练）
