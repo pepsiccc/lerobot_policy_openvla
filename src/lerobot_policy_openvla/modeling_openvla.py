@@ -177,6 +177,12 @@ class OpenVLAPolicy(PreTrainedPolicy):
 
         self.vla = ModelClass.from_pretrained(config.pretrained_backbone, **load_kwargs)
 
+        # 设置多相机输入数量（模型内部用于 pixel_values channel 拆分）
+        if config.num_images_in_input > 1:
+            if hasattr(self.vla, "vision_backbone") and hasattr(self.vla.vision_backbone, "set_num_images_in_input"):
+                self.vla.vision_backbone.set_num_images_in_input(config.num_images_in_input)
+                logger.info(f"设置 num_images_in_input={config.num_images_in_input}")
+
         # ── 可选：注入 LoRA ────────────────────────────────────────────────
         if config.use_lora:
             self._inject_lora()

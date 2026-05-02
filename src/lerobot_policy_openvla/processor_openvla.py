@@ -147,17 +147,33 @@ class OpenVLAPreProcessor:
                 pil_images.append(tensor_to_pil(img))
 
             # Prismatic processor 处理
-            # 单相机：images=PIL，多相机：images=List[PIL]
-            imgs_input = pil_images[0] if len(pil_images) == 1 else pil_images
-            inputs = self.hf_processor(
-                text=prompts[i],
-                images=imgs_input,
-                return_tensors="pt",
-            )
+            # 多相机：逐张处理后在 channel 维度拼接 → (1, 6*N, H, W)
+            # 模型内部用 torch.split(pixel_values, [6]*N, dim=1) 分离各相机
+            if len(pil_images) == 1:
+                inputs = self.hf_processor(
+                    text=prompts[i],
+                    images=pil_images[0],
+                    return_tensors="pt",
+                )
+                pv = inputs["pixel_values"]   # (1, 6, H, W)
+            else:
+                # 逐相机处理，然后 cat 在 channel 维度
+                pv_list = []
+                for img in pil_images:
+                    out = self.hf_processor(
+                        text=prompts[i],
+                        images=img,
+                        return_tensors="pt",
+                    )
+                    pv_list.append(out["pixel_values"])   # (1, 6, H, W)
+                    # 只取第一次的 input_ids（所有相机共用同一个 prompt）
+                    if not all_input_ids or len(all_input_ids) <= i:
+                        inputs = out
+                pv = torch.cat(pv_list, dim=1)   # (1, 6*N, H, W)
 
             all_input_ids.append(inputs["input_ids"].squeeze(0))
             all_attention_masks.append(inputs["attention_mask"].squeeze(0))
-            all_pixel_values.append(inputs["pixel_values"])   # (1, 6, H, W)
+            all_pixel_values.append(pv)   # (1, 6*N, H, W)
 
         # ── 3. Pad & stack ────────────────────────────────────────────────
         max_len = max(t.shape[0] for t in all_input_ids)
