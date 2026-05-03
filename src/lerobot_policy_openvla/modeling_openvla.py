@@ -160,7 +160,14 @@ class OpenVLAPolicy(PreTrainedPolicy):
 
         ModelClass = _load_prismatic_model_class(config.pretrained_backbone)
 
-        load_kwargs = dict(low_cpu_mem_usage=True, trust_remote_code=True)
+        # 限制每张卡最大显存，强制模型分布到两张卡
+        # GPU 0 留 20GB 给模型（ACT 占了约 4GB，剩 28GB，留 8GB buffer）
+        # GPU 1 全部可用
+        load_kwargs = dict(
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+            max_memory={0: "20GiB", 1: "30GiB"},
+        )
         # transformers 5.x 用 dtype，4.x 用 torch_dtype
         try:
             import transformers
@@ -186,6 +193,11 @@ class OpenVLAPolicy(PreTrainedPolicy):
         # ── 可选：注入 LoRA ────────────────────────────────────────────────
         if config.use_lora:
             self._inject_lora()
+            if hasattr(self.vla, "enable_input_require_grads"):
+                self.vla.enable_input_require_grads()
+            if hasattr(self.vla, "gradient_checkpointing_enable"):
+                self.vla.gradient_checkpointing_enable()
+                logger.info("已启用 gradient checkpointing")
 
         # ── 推理用 action chunk 队列 ──────────────────────────────────────
         self._action_queue: deque[torch.Tensor] = deque()
@@ -262,16 +274,31 @@ class OpenVLAPolicy(PreTrainedPolicy):
         """训练前向传播，直接调用 VLA 的 forward 计算 loss。
 
         Args:
-            batch: 包含以下键：
-                - "observation.images.*": (B, C, H, W)
-                - "input_ids": (B, seq_len)
-                - "attention_mask": (B, seq_len)
-                - "labels": (B, seq_len) action token 标签
-                - "observation.state": (B, proprio_dim) [可选]
+            batch: LeRobot DataLoader 输出的原始 batch，包含：
+                - "observation.images.*": (B, 3, H, W) 原始图像
+                - "observation.state": (B, proprio_dim) 本体状态 [可选]
+                - "task": list[str] 任务描述
+                - "action": (B, action_dim) 动作标签
 
         Returns:
             (loss, info)
         """
+        # 如果 batch 里没有 input_ids，说明还没经过 preprocessor，先处理
+        if "input_ids" not in batch:
+            from .processor_openvla import OpenVLAPreProcessor
+            if not hasattr(self, "_pre_processor"):
+                self._pre_processor = OpenVLAPreProcessor(config=self.config)
+            batch = self._pre_processor(batch)
+            # 把处理后的 tensor 移到正确的设备
+            device = next(self.vla.parameters()).device
+            dtype = getattr(torch, self.config.torch_dtype)
+            for k, v in batch.items():
+                if isinstance(v, torch.Tensor):
+                    if "pixel_values" in k or "images" in k:
+                        batch[k] = v.to(device=device, dtype=dtype)
+                    else:
+                        batch[k] = v.to(device=device)
+
         pixel_values = self._collect_pixel_values(batch)
         proprio = batch.get("observation.state") if self.config.use_proprio else None
 

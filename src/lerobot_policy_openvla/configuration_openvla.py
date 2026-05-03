@@ -5,7 +5,6 @@ OpenVLA-OFT Policy Configuration for LeRobot.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
 
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.configs.types import NormalizationMode
@@ -49,7 +48,7 @@ class OpenVLAConfig(PreTrainedConfig):
     # ── 量化 & 精度 ───────────────────────────────────────────────────────────
     load_in_8bit: bool = False
     load_in_4bit: bool = False
-    torch_dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
+    torch_dtype: str = "bfloat16"
 
     # ── LoRA 微调 ─────────────────────────────────────────────────────────────
     use_lora: bool = False

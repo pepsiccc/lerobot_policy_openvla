@@ -198,13 +198,42 @@ class OpenVLAPreProcessor:
             # modeling 的 _collect_pixel_values 会统一处理
             processed["pixel_values"] = pixel_values
 
-        # ── 4. 生成 labels（训练用）──────────────────────────────────────
-        # labels 全部填 IGNORE_INDEX，让模型只在 action token 位置计算 loss
-        # （模型内部的 _prepare_labels_for_action_prediction 会在 predict_action
-        #  时处理，但 forward() 训练路径需要我们传入 labels）
-        processed["labels"] = torch.full_like(
-            processed["input_ids"], IGNORE_INDEX
+        # ── 4. 生成 labels（训练用）──────────────────────────────────────────────
+        # labels 格式：语言部分全为 IGNORE_INDEX，action token 部分为 ACTION_TOKEN_BEGIN_IDX+1
+        # 最后一个 token 为 STOP_INDEX，与 _prepare_labels_for_action_prediction 对齐
+        ACTION_TOKEN_BEGIN_IDX = 31743
+        STOP_INDEX = 2
+        ACTION_DIM = self.config.action_dim
+        NUM_ACTIONS_CHUNK = self.config.action_chunk_size
+
+        input_ids = processed["input_ids"]  # (B, seq_len)
+        # 先全填 IGNORE_INDEX
+        labels = torch.full_like(input_ids, IGNORE_INDEX)
+        # 在末尾追加 action token 数量的占位 label
+        action_token_count = ACTION_DIM * NUM_ACTIONS_CHUNK + 1  # +1 for stop token
+        action_labels = torch.full(
+            (input_ids.shape[0], action_token_count),
+            ACTION_TOKEN_BEGIN_IDX + 1,
+            dtype=input_ids.dtype,
         )
+        action_labels[:, -1] = STOP_INDEX  # 最后一个是 stop token
+        labels = torch.cat([labels, action_labels], dim=1)
+
+        # input_ids 也要相应扩展（与 _prepare_input_for_action_prediction 对齐）
+        placeholder = torch.full(
+            (input_ids.shape[0], action_token_count),
+            ACTION_TOKEN_BEGIN_IDX + 1,
+            dtype=input_ids.dtype,
+        )
+        placeholder[:, -1] = STOP_INDEX
+        processed["input_ids"] = torch.cat([input_ids, placeholder], dim=1)
+        # attention_mask 也扩展
+        mask_extension = torch.ones(
+            (input_ids.shape[0], action_token_count),
+            dtype=processed["attention_mask"].dtype,
+        )
+        processed["attention_mask"] = torch.cat([processed["attention_mask"], mask_extension], dim=1)
+        processed["labels"] = labels
 
         # ── 5. 本体状态归一化（可选）─────────────────────────────────────
         if self.config.use_proprio and "observation.state" in batch:
