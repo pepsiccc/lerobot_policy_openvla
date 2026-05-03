@@ -68,7 +68,7 @@ class MLPActionHead(nn.Module):
         layers.append(nn.Linear(in_dim, action_dim))
         self.mlp = nn.Sequential(*layers)
 
-    def predict_action(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """
         Args:
             hidden_states: (B, action_chunk_size, llm_dim)
@@ -76,6 +76,10 @@ class MLPActionHead(nn.Module):
             actions: (B, action_chunk_size, action_dim)
         """
         return self.mlp(hidden_states)
+
+    def predict_action(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """推理时调用，与 forward 等价。"""
+        return self.forward(hidden_states)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,9 +143,13 @@ def _load_prismatic_model_class(model_path: str):
 
 
 def _get_vla_base(vla):
-    """获取 VLA 的底层模型（穿透 LoRA peft 包装）。"""
-    if hasattr(vla, "base_model"):
-        # peft 包装：vla.base_model.model 是原始模型
+    """获取 VLA 的底层模型（穿透 LoRA peft 包装）。
+    
+    LoRA 注入后：vla 是 PeftModel，vla.base_model.model 是原始 Prismatic 模型
+    未注入 LoRA：vla 本身就是原始模型，vla.base_model 是同一个对象
+    """
+    # peft 包装后 vla.base_model 是 LoraModel，vla.base_model.model 才是原始模型
+    if hasattr(vla, "base_model") and hasattr(vla.base_model, "model"):
         return vla.base_model.model
     return vla
 
@@ -225,7 +233,7 @@ class OpenVLAPolicy(PreTrainedPolicy):
             action_chunk_size=config.action_chunk_size,
             hidden_dim=config.action_head_hidden_dim,
             num_hidden_layers=config.action_head_num_hidden_layers,
-        )
+        ).to(dtype=torch_dtype)
 
         # 推理用 action chunk 队列
         self._action_queue: deque[torch.Tensor] = deque()
